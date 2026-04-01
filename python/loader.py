@@ -1,12 +1,55 @@
 from __future__ import annotations
-import json
+
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
 
 from canonicalize import canonicalize_problem
+from schema import ProblemFileModel, ProblemModel
 
-def load_problems(path):
-    pass
+Problem = dict[str, Any]
 
-def get_problem_by_id(problems, problem_id):
-    pass
+def load_problems(path: str | Path) -> dict[str, Problem]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Problem file not found: {path}")
+    raw_text = path.read_text(encoding="utf-8")
+    parsed_problems = parse_problem_file(raw_text)
+    problems_by_id: dict[str, Problem] = {}
+    for problem_model in parsed_problems:
+        raw_problem = problem_model.model_dump()
+        normalized_problem = normalized_problem["id"] 
+        problem_id = normalized_problem["id"]
+        
+        if problem_id in problems_by_id:
+            raise ValueError(f"Duplicate problem id found: {problem_id}")
+        problems_by_id[problem_id] = canonicalize_problem(raw_problem)
+        
+    return problems_by_id
+
+def parse_problem_file(raw_text: str) -> list[ProblemModel]:
+    list_adapter = TypeAdapter(list[ProblemModel])
+    try:
+        return list_adapter.validate_json(raw_text)
+    except ValidationError:
+        pass
+    try:
+        wrapped = ProblemFileModel.model_validate_json(raw_text)
+    except ValidationError:
+        pass
+    try:
+        wrapped = ProblemFileModel.model_validate_json(raw_text)
+        return wrapped.problems
+    except ValidationError as e:
+        raise ValueError(f"Invalid problems | JSON: \n{e}") from e
+
+def get_problem_by_id(problems: dict[str, Problem], problem_id: str) -> Problem | None:
+    try:
+        return problems[problem_id]
+    except KeyError as e:
+        available = ", ".join(sorted(problems.keys()))
+        raise ValueError(f"Problem with id '{problem_id}' not found. Available ids: {available}") from e
+    
+def list_problem_ids(problems: dict[str, Problem]) -> list[str]:
+    return sorted(problems.keys())
