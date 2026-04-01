@@ -1,1 +1,424 @@
-{}
+[
+  {
+    "id": "geom_0001",
+    "statement": "In triangle ABC, D is the midpoint of BC. Prove that BD = DC.",
+    "entities": {
+      "points": ["A", "B", "C", "D"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [
+      { "pred": "triangle", "args": ["A", "B", "C"] },
+      { "pred": "midpoint", "args": ["D", "B", "C"] }
+    ],
+    "goal": {
+      "pred": "equal_length",
+      "args": [
+        ["segment", "B", "D"],
+        ["segment", "D", "C"]
+      ]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["midpoint", "segment-equality"]
+    },
+    "proof_trace": [
+      {
+        "rule": "midpoint_def_equal_segments",
+        "facts_used": [{ "pred": "midpoint", "args": ["D", "B", "C"] }],
+        "derived": {
+          "pred": "equal_length",
+          "args": [
+            ["segment", "B", "D"],
+            ["segment", "D", "C"]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0002",
+    "statement": "D is the midpoint of AB. Prove that A, D, and B are collinear.",
+    "entities": {
+      "points": ["A", "B", "D"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [{ "pred": "midpoint", "args": ["D", "A", "B"] }],
+    "goal": {
+      "pred": "collinear",
+      "args": ["A", "D", "B"]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["midpoint", "collinearity"]
+    },
+    "proof_trace": [
+      {
+        "rule": "midpoint_def_collinear",
+        "facts_used": [{ "pred": "midpoint", "args": ["D", "A", "B"] }],
+        "derived": {
+          "pred": "collinear",
+          "args": ["A", "D", "B"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0003",
+    "statement": "Suppose AD = DB and A, D, B are collinear. Prove that D is the midpoint of AB.",
+    "entities": {
+      "points": ["A", "B", "D"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [
+      {
+        "pred": "equal_length",
+        "args": [
+          ["segment", "A", "D"],
+          ["segment", "D", "B"]
+        ]
+      },
+      { "pred": "collinear", "args": ["A", "D", "B"] }
+    ],
+    "goal": {
+      "pred": "midpoint",
+      "args": ["D", "A", "B"]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["midpoint-converse", "collinearity", "segment-equality"]
+    },
+    "proof_trace": [
+      {
+        "rule": "midpoint_converse",
+        "facts_used": [
+          {
+            "pred": "equal_length",
+            "args": [
+              ["segment", "A", "D"],
+              ["segment", "D", "B"]
+            ]
+          },
+          { "pred": "collinear", "args": ["A", "D", "B"] }
+        ],
+        "derived": {
+          "pred": "midpoint",
+          "args": ["D", "A", "B"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0004",
+    "statement": "In triangle ABC, D and E are the midpoints of AB and AC respectively. Prove that DE is parallel to BC.",
+    "entities": {
+      "points": ["A", "B", "C", "D", "E"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [
+      { "pred": "triangle", "args": ["A", "B", "C"] },
+      { "pred": "midpoint", "args": ["D", "A", "B"] },
+      { "pred": "midpoint", "args": ["E", "A", "C"] }
+    ],
+    "goal": {
+      "pred": "parallel",
+      "args": [
+        ["line", "D", "E"],
+        ["line", "B", "C"]
+      ]
+    },
+    "metadata": {
+      "difficulty": "medium",
+      "source": "synthetic",
+      "tags": ["midsegment", "parallel"]
+    },
+    "proof_trace": [
+      {
+        "rule": "midsegment_theorem",
+        "facts_used": [
+          { "pred": "midpoint", "args": ["D", "A", "B"] },
+          { "pred": "midpoint", "args": ["E", "A", "C"] }
+        ],
+        "derived": {
+          "pred": "parallel",
+          "args": [
+            ["line", "D", "E"],
+            ["line", "B", "C"]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0005",
+    "statement": "In triangle ABC, if AB = AC, prove that angle ABC equals angle BCA.",
+    "entities": {
+      "points": ["A", "B", "C"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [
+      { "pred": "triangle", "args": ["A", "B", "C"] },
+      {
+        "pred": "equal_length",
+        "args": [
+          ["segment", "A", "B"],
+          ["segment", "A", "C"]
+        ]
+      }
+    ],
+    "goal": {
+      "pred": "equal_angle",
+      "args": [
+        ["angle", "A", "B", "C"],
+        ["angle", "B", "C", "A"]
+      ]
+    },
+    "metadata": {
+      "difficulty": "medium",
+      "source": "synthetic",
+      "tags": ["isosceles", "base-angles"]
+    },
+    "proof_trace": [
+      {
+        "rule": "equal_legs_imply_base_angles",
+        "facts_used": [
+          { "pred": "triangle", "args": ["A", "B", "C"] },
+          {
+            "pred": "equal_length",
+            "args": [
+              ["segment", "A", "B"],
+              ["segment", "A", "C"]
+            ]
+          }
+        ],
+        "derived": {
+          "pred": "equal_angle",
+          "args": [
+            ["angle", "A", "B", "C"],
+            ["angle", "B", "C", "A"]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0006",
+    "statement": "P lies on the perpendicular bisector of AB. Prove that PA = PB.",
+    "entities": {
+      "points": ["A", "B", "P"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [{ "pred": "on_perp_bisector", "args": ["P", "A", "B"] }],
+    "goal": {
+      "pred": "equal_length",
+      "args": [
+        ["segment", "P", "A"],
+        ["segment", "P", "B"]
+      ]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["perpendicular-bisector", "equidistance"]
+    },
+    "proof_trace": [
+      {
+        "rule": "perpendicular_bisector_equidistance",
+        "facts_used": [{ "pred": "on_perp_bisector", "args": ["P", "A", "B"] }],
+        "derived": {
+          "pred": "equal_length",
+          "args": [
+            ["segment", "P", "A"],
+            ["segment", "P", "B"]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0007",
+    "statement": "AP bisects angle BAC. Prove that angle BAP equals angle PAC.",
+    "entities": {
+      "points": ["A", "B", "C", "P"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [{ "pred": "angle_bisector", "args": ["P", "A", "B", "C"] }],
+    "goal": {
+      "pred": "equal_angle",
+      "args": [
+        ["angle", "B", "A", "P"],
+        ["angle", "P", "A", "C"]
+      ]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["angle-bisector", "equal-angles"]
+    },
+    "proof_trace": [
+      {
+        "rule": "angle_bisector_definition",
+        "facts_used": [
+          { "pred": "angle_bisector", "args": ["P", "A", "B", "C"] }
+        ],
+        "derived": {
+          "pred": "equal_angle",
+          "args": [
+            ["angle", "B", "A", "P"],
+            ["angle", "P", "A", "C"]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0008",
+    "statement": "B lies between A and C. Prove that A, B, and C are collinear.",
+    "entities": {
+      "points": ["A", "B", "C"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [{ "pred": "between", "args": ["A", "B", "C"] }],
+    "goal": {
+      "pred": "collinear",
+      "args": ["A", "B", "C"]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["between", "collinearity"]
+    },
+    "proof_trace": [
+      {
+        "rule": "between_implies_collinear",
+        "facts_used": [{ "pred": "between", "args": ["A", "B", "C"] }],
+        "derived": {
+          "pred": "collinear",
+          "args": ["A", "B", "C"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0009",
+    "statement": "If AB = CD and CD = EF, prove that AB = EF.",
+    "entities": {
+      "points": ["A", "B", "C", "D", "E", "F"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [
+      {
+        "pred": "equal_length",
+        "args": [
+          ["segment", "A", "B"],
+          ["segment", "C", "D"]
+        ]
+      },
+      {
+        "pred": "equal_length",
+        "args": [
+          ["segment", "C", "D"],
+          ["segment", "E", "F"]
+        ]
+      }
+    ],
+    "goal": {
+      "pred": "equal_length",
+      "args": [
+        ["segment", "A", "B"],
+        ["segment", "E", "F"]
+      ]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["segment-equality", "transitivity"]
+    },
+    "proof_trace": [
+      {
+        "rule": "equal_length_transitivity",
+        "facts_used": [
+          {
+            "pred": "equal_length",
+            "args": [
+              ["segment", "A", "B"],
+              ["segment", "C", "D"]
+            ]
+          },
+          {
+            "pred": "equal_length",
+            "args": [
+              ["segment", "C", "D"],
+              ["segment", "E", "F"]
+            ]
+          }
+        ],
+        "derived": {
+          "pred": "equal_length",
+          "args": [
+            ["segment", "A", "B"],
+            ["segment", "E", "F"]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "geom_0010",
+    "statement": "In triangle ABC, if AB = AC, prove that ABC is isosceles with vertex at A.",
+    "entities": {
+      "points": ["A", "B", "C"],
+      "lines": [],
+      "circles": []
+    },
+    "givens": [
+      { "pred": "triangle", "args": ["A", "B", "C"] },
+      {
+        "pred": "equal_length",
+        "args": [
+          ["segment", "A", "B"],
+          ["segment", "A", "C"]
+        ]
+      }
+    ],
+    "goal": {
+      "pred": "is_isosceles",
+      "args": ["A", "B", "C"]
+    },
+    "metadata": {
+      "difficulty": "easy",
+      "source": "synthetic",
+      "tags": ["isosceles", "classification"]
+    },
+    "proof_trace": [
+      {
+        "rule": "equal_legs_imply_isosceles",
+        "facts_used": [
+          { "pred": "triangle", "args": ["A", "B", "C"] },
+          {
+            "pred": "equal_length",
+            "args": [
+              ["segment", "A", "B"],
+              ["segment", "A", "C"]
+            ]
+          }
+        ],
+        "derived": {
+          "pred": "is_isosceles",
+          "args": ["A", "B", "C"]
+        }
+      }
+    ]
+  }
+]
