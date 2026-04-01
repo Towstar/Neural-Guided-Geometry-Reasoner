@@ -53,6 +53,35 @@ def canonicalize_fact(fact: Fact) -> Fact:
     if not isinstance(args, list):
         raise ValueError(f"Fact 'args' must be a list, got: {type(args)}")
     args = [canonicalize_term(arg) for arg in args]
+    if pred == "collinear":
+        if len(args) != 3 or not all(is_point_name(x) for x in args):
+            raise ValueError(f"Invalid collinear fact: {fact}")
+        args = sorted(args)
+    elif pred == "between":
+        if len(args) != 3 or not all(is_point_name(x) for x in args):
+            raise ValueError(f"Invalid between fact: {fact}")
+    elif pred == "midpoint":
+        if len(args) != 3 or not all(is_point_name(x) for x in args):
+            raise ValueError(f"Invalid midpoint fact: {fact}")
+        m, a, b = args
+        a, b = sort_points(a, b)
+        args = [m, a, b]
+    elif pred == "equal_length":
+        if len(args) != 2 or not all(is_segment_term(x) for x in args):
+            raise ValueError(f"Invalid equal_length fact: {fact}")
+        s1, s2 = sort_terms_lexicographically(args[0], args[1])
+        args = [s1, s2]
+    elif pred in {"parallel", "perpendicular"}:
+        if len(args) != 2 or not all(is_line_term(x) for x in args):
+            raise ValueError(f"Invalid {pred} fact: {fact}")
+        l1, l2 = sort_terms_lexicographically(args[0], args[1])
+        args = [l1, l2]
+    elif pred == "equal_angle":
+        if len(args) != 2 or not all(is_angle_term(x) for x in args):
+            raise ValueError(f"Invalid equal_angle fact: {fact}")
+        a1, a2 = sort_terms_lexicographically(args[0], args[1])
+        args = [a1, a2]
+    return {"pred": pred, "args": args}
 
 def canonicalize_goal(goal: Fact) -> Fact:
     return canonicalize_fact(goal)
