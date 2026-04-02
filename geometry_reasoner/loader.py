@@ -5,8 +5,8 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from canonicalize import canonicalize_problem
-from schema import ProblemFileModel, ProblemModel
+from .canonicalize import canonicalize_problem
+from .schema import ProblemFileModel, ProblemModel
 
 Problem = dict[str, Any]
 
