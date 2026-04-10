@@ -89,6 +89,13 @@ def canonicalize_goal(goal: Fact) -> Fact:
 def canonicalize_problem(problem: Problem) -> Problem:
     normalized = deepcopy(problem) 
     normalized["entities"]["points"] = sorted(set(normalized["entities"]["points"])) 
+    normalized["entities"]["points"] = sorted(set(normalized["entities"]["points"]))
+    
+    if "lines" in normalized["entities"]:
+        normalized["entities"]["lines"] = sorted(set(normalized["entities"]["lines"]))
+    if "circles" in normalized["entities"]:
+        normalized["entities"]["circles"] = sorted(set(normalized["entities"]["circles"]))
+        
     canon_givens = [canonicalize_fact(f) for f in normalized["givens"]] 
     normalized["givens"] = sort_facts(deduplicate_facts(canon_givens)) 
     normalized["goal"] = canonicalize_goal(normalized["goal"]) 

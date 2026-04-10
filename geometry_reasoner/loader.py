@@ -28,18 +28,31 @@ def load_problems(path: str | Path) -> dict[str, Problem]:
         
     return problems_by_id
 
+def load_problem(path: str | Path, problem_id: str) -> Problem:
+    problems = load_problems(path)
+    return get_problem_by_id(problems, problem_id)
+
 def parse_problem_file(raw_text: str) -> list[ProblemModel]:
     list_adapter = TypeAdapter(list[ProblemModel])
+
+    list_error = None
     try:
         return list_adapter.validate_json(raw_text)
-    except ValidationError:
-        pass
+    except ValidationError as e:
+        list_error = e
 
+    wrapped_error = None
     try:
         wrapped = ProblemFileModel.model_validate_json(raw_text)
         return wrapped.problems
     except ValidationError as e:
-        raise ValueError(f"Invalid problems JSON:\n{e}") from e
+        wrapped_error = e
+
+    raise ValueError(
+        "Invalid problems JSON.\n\n"
+        f"Top-level list parse failed:\n{list_error}\n\n"
+        f"Wrapped object parse failed:\n{wrapped_error}"
+    )
 
 def get_problem_by_id(problems: dict[str, Problem], problem_id: str) -> Problem:
     try:

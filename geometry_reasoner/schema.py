@@ -14,18 +14,20 @@ class EntitiesModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     points: list[str]
+    lines: list[str] = []
+    circles: list[str] = []
 
-    @field_validator("points")
+    @field_validator("points", "lines", "circles")
     @classmethod
-    def validate_points(cls, value: list[str]) -> list[str]:
+    def validate_name_list(cls, value: list[str]) -> list[str]:
         if not isinstance(value, list):
-            raise TypeError("points must be a list")
+            raise TypeError("entity collection must be a list")
 
         cleaned: list[str] = []
-        for p in value:
-            if not isinstance(p, str) or not p.strip():
-                raise ValueError("each point must be a non-empty string")
-            cleaned.append(p)
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("each entity name must be a non-empty string")
+            cleaned.append(item)
 
         return cleaned
 
@@ -57,9 +59,11 @@ class ProblemModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    statement: str | None = None
     entities: EntitiesModel
     givens: list[FactModel]
     goal: FactModel
+    metadata: dict[str, Any] | None = None
     proof_trace: list[ProofStepModel] | None = None
 
     @field_validator("id")
