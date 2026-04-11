@@ -3,3 +3,4 @@ __pycache__/
 tests/quick_test.py
 tests/quick_*.py
 tests/scratch_*.py
+*.BAK
