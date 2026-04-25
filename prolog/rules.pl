@@ -49,12 +49,12 @@ canonical_fact(between(A,B,C), between(A,B,C)).
 
 canonical_fact(triangle(A,B,C), triangle(A,B,C)).
 
-canonical_fact(on_perp_bisector(P,A,B,C), on_perp_bisector(P,X,Y)) :-
+canonical_fact(on_perp_bisector(P,A,B), on_perp_bisector(P,X,Y)) :-
 ordered_pair(A,B,X,Y).
 
 canonical_fact(angle_bisector(P,A,B,C), angle_bisector(P,A,B,C)).
 
-canonical_fact(is_icosceles(A,B,C), is_isosceles(A,B,C)).
+canonical_fact(is_isosceles(A,B,C), is_isosceles(A,B,C)).
 
 canonical_fact(equal_length(S1, S2), equal_length(X1, X2)) :-
 canonical_term(S1, C1),
