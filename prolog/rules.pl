@@ -40,45 +40,61 @@ atomic(T).
 %-------------------------------------
 
 canonical_fact(midpoint(M,A,B), midpoint(M,X,Y)) :-
-ordered_pair(A,B,X,Y).
+ordered_pair(A,B,X,Y), !.
 
 canonical_fact(collinear(A,B,C), collinear(X,Y,Z)) :-
-msort([A,B,C], [X,Y,Z]).
+msort([A,B,C], [X,Y,Z]), !.
 
-canonical_fact(between(A,B,C), between(A,B,C)).
+canonical_fact(between(A,B,C), between(A,B,C)) :- !.
 
-canonical_fact(triangle(A,B,C), triangle(A,B,C)).
+canonical_fact(triangle(A,B,C), triangle(A,B,C)) :- !.
 
 canonical_fact(on_perp_bisector(P,A,B), on_perp_bisector(P,X,Y)) :-
-ordered_pair(A,B,X,Y).
+ordered_pair(A,B,X,Y), !.
 
-canonical_fact(angle_bisector(P,A,B,C), angle_bisector(P,A,B,C)).
+canonical_fact(angle_bisector(P,A,B,C), angle_bisector(P,A,B,C)) :- !.
 
-canonical_fact(is_isosceles(A,B,C), is_isosceles(A,B,C)).
+canonical_fact(is_isosceles(A,B,C), is_isosceles(A,B,C)) :- !.
 
 canonical_fact(equal_length(S1, S2), equal_length(X1, X2)) :-
 canonical_term(S1, C1),
 canonical_term(S2, C2),
-ordered_terms(C1, C2, X1, X2).
+ordered_terms(C1, C2, X1, X2), !.
 
 canonical_fact(parallel(L1, L2), parallel(X1, X2)) :-
 canonical_term(L1, C1),
 canonical_term(L2, C2),
-ordered_terms(C1, C2, X1, X2).
+ordered_terms(C1, C2, X1, X2), !.
 
 canonical_fact(perpendicular(L1, L2), perpendicular(X1, X2)) :-
 canonical_term(L1, C1),
 canonical_term(L2, C2),
-ordered_terms(C1, C2, X1, X2).
+ordered_terms(C1, C2, X1, X2), !.
 
 canonical_fact(equal_angle(A1, A2), equal_angle(X1, X2)) :-
 canonical_term(A1, C1),
 canonical_term(A2, C2),
-ordered_terms(C1, C2, X1, X2).
+ordered_terms(C1, C2, X1, X2), !.
 
 canonical_fact(F, F).
 
-has_fact(Facts, Fact) :- memberchk(Fact, Facts).
+has_fact(Facts, Fact) :- member(Fact, Facts).
+
+has_collinear(Facts, A, B, C) :-
+    canonical_fact(collinear(A, B, C), CanonFact),
+    has_fact(Facts, CanonFact).
+
+segment_other_endpoint(segment(A, B), A, B).
+segment_other_endpoint(segment(A, B), B, A).
+
+shared_nonshared_pair(S1, S2, S1, S3, S2, S3) :-
+    S2 \= S3.
+shared_nonshared_pair(S1, S2, S3, S1, S2, S3) :-
+    S2 \= S3.
+shared_nonshared_pair(S1, S2, S2, S3, S1, S3) :-
+    S1 \= S3.
+shared_nonshared_pair(S1, S2, S3, S2, S1, S3) :-
+    S1 \= S3.
 
 % midpoint(M,A,B) -> equal_length(segment(A,M), segment(M,B))
 derive(Facts, Derived, midpoint_def_equal_segments) :-
@@ -106,8 +122,11 @@ derive(Facts, Derived, between_implies_collinear) :-
 
 % equal_length(segment(A,M), segment(M,B)) and collinear(A,M,B) -> midpoint(M,A,B)
 derive(Facts, Derived, midpoint_converse) :-
-    has_fact(Facts, equal_length(segment(A, M), segment(M, B))),
-    has_fact(Facts, collinear(A, M, B)),
+    has_fact(Facts, equal_length(S1, S2)),
+    segment_other_endpoint(S1, M, A),
+    segment_other_endpoint(S2, M, B),
+    A \= B,
+    has_collinear(Facts, A, M, B),
     canonical_fact(
         midpoint(M, A, B),
         Derived
@@ -150,9 +169,9 @@ derive(Facts, Derived, angle_bisector_definition) :-
 
 % transitivity of segment equality
 derive(Facts, Derived, equal_length_transitivity) :-
-    has_fact(Facts, equal_length(S1, S2)),
-    has_fact(Facts, equal_length(S2, S3)),
-    S1 \= S3,
+    has_fact(Facts, equal_length(A, B)),
+    has_fact(Facts, equal_length(C, D)),
+    shared_nonshared_pair(A, B, C, D, S1, S3),
     canonical_fact(
         equal_length(S1, S3),
         Derived

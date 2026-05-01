@@ -9,12 +9,22 @@
 
 
 % --------------------------------------------------
+% Normalize and deduplicate a fact set before querying
+% --------------------------------------------------
+
+canonicalize_facts(Facts, CanonFacts) :-
+    maplist(canonical_fact, Facts, CanonFacts0),
+    sort(CanonFacts0, CanonFacts).
+
+
+% --------------------------------------------------
 % Check whether a goal is already present in the fact set
 % --------------------------------------------------
 
 goal_reached(Facts, Goal) :-
+    canonicalize_facts(Facts, CanonFacts),
     canonical_fact(Goal, CanonGoal),
-    memberchk(CanonGoal, Facts).
+    memberchk(CanonGoal, CanonFacts).
 
 
 % --------------------------------------------------
@@ -22,8 +32,10 @@ goal_reached(Facts, Goal) :-
 % --------------------------------------------------
 
 new_derivation(Facts, Derived, Rule) :-
-    derive(Facts, Derived, Rule),
-    \+ memberchk(Derived, Facts).
+    canonicalize_facts(Facts, CanonFacts),
+    derive(CanonFacts, Candidate, Rule),
+    canonical_fact(Candidate, Derived),
+    \+ memberchk(Derived, CanonFacts).
 
 
 % --------------------------------------------------
@@ -48,8 +60,9 @@ all_candidates(_, []).
 % --------------------------------------------------
 
 apply_derivation(Facts, Derived, NewFacts) :-
+    canonicalize_facts(Facts, CanonFacts),
     canonical_fact(Derived, CanonDerived),
-    (   memberchk(CanonDerived, Facts)
-    ->  NewFacts = Facts
-    ;   NewFacts = [CanonDerived | Facts]
+    (   memberchk(CanonDerived, CanonFacts)
+    ->  NewFacts = CanonFacts
+    ;   NewFacts = [CanonDerived | CanonFacts]
     ).
