@@ -2,6 +2,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
+#----------------------------------------------------------
+# canonicalization and normalization of geometry facts and problems
+#----------------------------------------------------------
+
 JSONValue = Any
 Fact = Dict[str, Any]
 Problem = Dict[str, Any]
@@ -84,11 +88,14 @@ def canonicalize_fact(fact: Fact) -> Fact:
     return {"pred": pred, "args": args}
 
 def canonicalize_goal(goal: Fact) -> Fact:
+    """Canonicalize a geometry goal."""
     return canonicalize_fact(goal)
 
+# Wrapper function for the canonicalization of a complete problem, including its entities, givens, and goal.
 def canonicalize_problem(problem: Problem) -> Problem:
+    """Canonicalize a geometry problem by normalizing its entities, givens, and goal."""
     normalized = deepcopy(problem) 
-    normalized["entities"]["points"] = sorted(set(normalized["entities"]["points"])) 
+    normalized["entities"]["points"] = sorted(set(normalized["entities"]["points"]))  # set to deduplicate
     normalized["entities"]["points"] = sorted(set(normalized["entities"]["points"]))
     
     if "lines" in normalized["entities"]:
@@ -96,9 +103,10 @@ def canonicalize_problem(problem: Problem) -> Problem:
     if "circles" in normalized["entities"]:
         normalized["entities"]["circles"] = sorted(set(normalized["entities"]["circles"]))
         
-    canon_givens = [canonicalize_fact(f) for f in normalized["givens"]] 
+    canon_givens = [canonicalize_fact(f) for f in normalized["givens"]] # canonicalize all givvens
     normalized["givens"] = sort_facts(deduplicate_facts(canon_givens)) 
     normalized["goal"] = canonicalize_goal(normalized["goal"]) 
+    # canonicalize proof trace if present
     if normalized.get("proof_trace") is not None: 
         for step in normalized["proof_trace"]: 
             if step.get("facts_used") is not None: 

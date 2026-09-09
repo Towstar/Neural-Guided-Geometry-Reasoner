@@ -4,3 +4,9 @@ tests/quick_test.py
 tests/quick_*.py
 tests/scratch_*.py
 *.BAK
+.env
+artifacts/
+scripts/generate_eval_images.py
+data/images
+data/image_manifest.json
+local-notes/

@@ -8,9 +8,14 @@ from pydantic import TypeAdapter, ValidationError
 from .canonicalize import canonicalize_problem
 from .schema import ProblemFileModel, ProblemModel
 
+#----------------------------------------------------------
+# Loads geometry problems from JSON files and normalizes them.
+#----------------------------------------------------------
+
 Problem = dict[str, Any]
 
 def load_problems(path: str | Path) -> dict[str, Problem]:
+    """Load and normalize geometry problems from a JSON file."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Problem file not found: {path}")

@@ -1,4 +1,7 @@
 pydantic==2.12.5
 pytest==9.0.2
 colorama==0.4.6
-Pygments==20.0
+Pygments==2.20.0
+openai==2.54.0
+python-dotenv==1.2.3
+Pillow==12.3.0
