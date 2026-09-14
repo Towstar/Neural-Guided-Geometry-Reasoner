@@ -13,7 +13,7 @@ from geometry_reasoner.formalizer import (
     IncompleteFormalizationError,
     MissingAPIKeyError,
     OpenAIFormalizer,
-    _api_key_from_environment,
+    openai_api_key_from_environment,
     materialize_problem,
 )
 from geometry_reasoner.schema import FormalizationResult
@@ -170,7 +170,7 @@ def test_api_key_prefers_standard_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("geometry_reasoner.formalizer.load_dotenv", lambda: None)
     monkeypatch.setenv("OPENAI_API_KEY", "standard-key")
     monkeypatch.setenv("OPEN_AI_KEY", "legacy-key")
-    assert _api_key_from_environment() == "standard-key"
+    assert openai_api_key_from_environment() == "standard-key"
 
 
 def test_missing_api_key_has_safe_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,4 +178,4 @@ def test_missing_api_key_has_safe_error(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPEN_AI_KEY", raising=False)
     with pytest.raises(MissingAPIKeyError, match="OPENAI_API_KEY"):
-        _api_key_from_environment()
+        openai_api_key_from_environment()

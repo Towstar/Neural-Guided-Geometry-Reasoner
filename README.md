@@ -19,14 +19,14 @@ text or image
 ## Prerequisites
 
 - Python 3.12
-- `pip` and `venv` for the current setup
+- `uv` for Python and dependency management
 - SWI-Prolog 10+, with `swipl` on `PATH`
 - An OpenAI API key for hosted formalization
 
 Check the important executables:
 
 ```powershell
-python --version
+uv --version
 swipl --version
 ```
 
@@ -38,11 +38,11 @@ The current tested SWI-Prolog version is 10.0.0. The project currently uses
 From the repository root in PowerShell:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+uv sync
 ```
+
+`uv sync` creates and maintains the project virtual environment using the pinned Python 3.12
+version. Activation is not required; run project commands through `uv run`.
 
 Copy the environment template:
 
@@ -62,19 +62,19 @@ The legacy name `OPEN_AI_KEY` is also accepted. `.env` is ignored by Git.
 Run a text problem:
 
 ```powershell
-python -m demo.cli --text "D is the midpoint of AB. Prove that A, D, and B are collinear."
+uv run python -m demo.cli --text "D is the midpoint of AB. Prove that A, D, and B are collinear."
 ```
 
 Run a local image:
 
 ```powershell
-python -m demo.cli --image path\to\problem.png
+uv run python -m demo.cli --image path\to\problem.png
 ```
 
 Request machine-readable output:
 
 ```powershell
-python -m demo.cli --text "B lies between A and C. Prove A, B, and C are collinear." --json
+uv run python -m demo.cli --text "B lies between A and C. Prove A, B, and C are collinear." --json
 ```
 
 Use `--max-steps N` to change the default 32-step proof bound.
@@ -115,7 +115,7 @@ vary.
 Run the deterministic offline suite:
 
 ```powershell
-python -m pytest -q -m "not live_api"
+uv run --group dev python -m pytest -q -m "not live_api"
 ```
 
 These tests require a real `swipl` installation but no OpenAI key.
@@ -124,7 +124,7 @@ Run the two billable live smoke tests only when wanted:
 
 ```powershell
 $env:RUN_OPENAI_LIVE_TESTS="1"
-python -m pytest tests\test_live_api.py -q
+uv run --group dev python -m pytest tests\test_live_api.py -q
 ```
 
 ## Evaluation
@@ -132,7 +132,7 @@ python -m pytest tests\test_live_api.py -q
 Run the hosted-model evaluator:
 
 ```powershell
-python -m geometry_reasoner.evaluate
+uv run python -m geometry_reasoner.evaluate
 ```
 
 It reports:
@@ -187,18 +187,20 @@ tests/                  offline, integration, and opt-in live tests
 
 The remaining scope is intentionally limited:
 
-1. Move dependency management to `uv` and a committed lockfile.
-2. Abstract formalization so provider/model are runtime CLI choices.
-3. Add one local text formalizer through `llama.cpp`, then run one measured fine-tune.
-4. Make proof traces premise-complete.
-5. Keep one persistent SWI-Prolog process per problem.
-6. Add bounded Prolog-native recursive search.
-7. Train and persist one XGBoost candidate ranker.
-8. Compare Prolog-only, first-candidate, and XGBoost-guided search.
-9. Record the experiments in `RESEARCH_NOTES.md`, document the result, and stop.
+1. Abstract formalization so provider/model are runtime CLI choices.
+2. Add one local text formalizer through `llama.cpp`, then run one measured fine-tune.
+3. Make proof traces premise-complete.
+4. Keep one persistent SWI-Prolog process per problem.
+5. Add bounded Prolog-native recursive search.
+6. Train and persist one XGBoost candidate ranker.
+7. Compare Prolog-only, first-candidate, and XGBoost-guided search.
+8. Record the experiments in `RESEARCH_NOTES.md`, document the result, and stop.
 
 Reinforcement learning, a web UI, retrieval, distributed training, and production
 serving are outside the completion scope.
 
-The current setup still uses `requirements.txt`; the documented commands will switch to
-`uv sync` and `uv run` when that migration is implemented.
+Dependencies are declared in `pyproject.toml` and fully resolved in the committed `uv.lock`.
+Use `uv sync` to create a development environment, `uv run` to execute project commands,
+`uv add <package>` to add a runtime dependency, and `uv add --group dev <package>` for a
+development-only dependency. Commit both `pyproject.toml` and `uv.lock` whenever dependencies
+change.

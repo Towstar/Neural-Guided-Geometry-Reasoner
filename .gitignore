@@ -1,4 +1,5 @@
 facts.pl
+/.venv/
 __pycache__/
 tests/quick_test.py
 tests/quick_*.py
