@@ -137,6 +137,7 @@ name = "neural-guided-geometry-reasoner"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "ollama" },
     { name = "openai" },
     { name = "pillow" },
@@ -146,12 +147,12 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "ollama", specifier = ">=0.6.2" },
     { name = "openai", specifier = "==2.54.0" },
     { name = "pillow", specifier = "==12.3.0" },
@@ -160,10 +161,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = "==0.28.1" },
-    { name = "pytest", specifier = "==9.0.2" },
-]
+dev = [{ name = "pytest", specifier = "==9.0.2" }]
 
 [[package]]
 name = "ollama"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,9 +15,13 @@ from geometry_reasoner.formalizer import (
     IncompleteFormalizationError,
     MissingAPIKeyError,
     MissingModelError,
+    LlamaCppFormalizer,
     OllamaFormalizer,
     OpenAIFormalizer,
+    _STARTED_LLAMA_CPP_SERVERS,
+    _ensure_llama_cpp_server,
     create_formalizer,
+    llama_cpp_formalization_schema,
     openai_api_key_from_environment,
     materialize_problem,
 )
@@ -96,6 +101,29 @@ def _ollama_response(content: str) -> object:
     )
 
 
+class FakeLlamaResponse:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict:
+        return self.payload
+
+
+class FakeLlamaClient:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.path: str | None = None
+        self.kwargs: dict | None = None
+
+    def post(self, path: str, **kwargs: object) -> FakeLlamaResponse:
+        self.path = path
+        self.kwargs = kwargs
+        return FakeLlamaResponse(self.payload)
+
+
 def test_text_request_uses_structured_output_without_storage() -> None:
     client = FakeClient(_response(_parsed_result()))
     formalizer = OpenAIFormalizer(client=client)
@@ -128,6 +156,90 @@ def test_ollama_text_request_uses_schema_and_validates_json() -> None:
     assert formalizer.last_call_metadata is not None
     assert formalizer.last_call_metadata.provider == "ollama"
     assert formalizer.last_call_metadata.total_tokens == 30
+
+
+def test_llama_cpp_request_uses_constrained_schema_and_validates_json() -> None:
+    expected = _parsed_result()
+    client = FakeLlamaClient(
+        {
+            "id": "llama-response",
+            "model": "geometry-local",
+            "choices": [{"message": {"content": expected.model_dump_json()}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        }
+    )
+    formalizer = LlamaCppFormalizer(client=client, model="geometry-local")
+
+    result = formalizer.formalize_text("D is the midpoint of AB.")
+
+    assert result == expected
+    assert client.path == "/chat/completions"
+    assert client.kwargs is not None
+    request = client.kwargs["json"]
+    assert request["stream"] is False
+    assert request["response_format"]["type"] == "json_schema"
+    assert request["response_format"]["json_schema"]["schema"] == (
+        llama_cpp_formalization_schema()
+    )
+    assert formalizer.last_call_metadata is not None
+    assert formalizer.last_call_metadata.provider == "llama-cpp"
+    assert formalizer.last_call_metadata.total_tokens == 30
+
+
+def test_llama_cpp_schema_inlines_pydantic_references() -> None:
+    assert '"$ref"' not in json.dumps(llama_cpp_formalization_schema())
+
+
+def test_llama_cpp_auto_start_waits_for_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    binary = tmp_path / "llama-server.exe"
+    model = tmp_path / "geometry.gguf"
+    binary.touch()
+    model.touch()
+    statuses = iter([None, 503, 200])
+    commands: list[list[str]] = []
+
+    class FakeProcess:
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "geometry_reasoner.formalizer._llama_cpp_health_status",
+        lambda base_url: next(statuses),
+    )
+    monkeypatch.setattr(
+        "geometry_reasoner.formalizer.subprocess.Popen",
+        lambda command, **kwargs: commands.append(command) or FakeProcess(),
+    )
+    monkeypatch.setattr("geometry_reasoner.formalizer.time.sleep", lambda _: None)
+    _STARTED_LLAMA_CPP_SERVERS.clear()
+
+    _ensure_llama_cpp_server(
+        base_url="http://127.0.0.1:8080",
+        server_path=binary,
+        model_path=model,
+        auto_start=True,
+        startup_timeout_seconds=1.0,
+    )
+
+    assert commands == [
+        [
+            str(binary),
+            "--model",
+            str(model),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8080",
+            "--jinja",
+            "--reasoning",
+            "off",
+        ]
+    ]
+    _STARTED_LLAMA_CPP_SERVERS.clear()
 
 
 def test_factory_selects_ollama_and_requires_a_model(

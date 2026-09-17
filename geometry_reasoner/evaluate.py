@@ -193,13 +193,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int)
     parser.add_argument(
         "--provider",
-        choices=("openai", "ollama"),
+        choices=("openai", "ollama", "llama-cpp"),
         default="openai",
         help="LLM provider for formalization (default: openai)",
     )
     parser.add_argument("--model", help="Model name or Ollama model tag")
     parser.add_argument("--base-url", help="Provider endpoint")
+    parser.add_argument("--timeout-seconds", type=_positive_float, default=120.0)
+    parser.add_argument("--llama-server-path", type=Path)
+    parser.add_argument("--llama-model-path", type=Path)
+    parser.add_argument(
+        "--no-auto-start-llama-cpp",
+        action="store_false",
+        dest="auto_start_llama_cpp",
+    )
+    parser.set_defaults(auto_start_llama_cpp=True)
+    parser.add_argument(
+        "--llama-startup-timeout-seconds",
+        type=_positive_float,
+        default=180.0,
+    )
     return parser
+
+
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -216,6 +237,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 provider=args.provider,
                 model=args.model,
                 base_url=args.base_url,
+                timeout_seconds=args.timeout_seconds,
+                llama_cpp_server_path=args.llama_server_path,
+                llama_cpp_model_path=args.llama_model_path,
+                auto_start_llama_cpp=args.auto_start_llama_cpp,
+                llama_cpp_startup_timeout_seconds=args.llama_startup_timeout_seconds,
             )
         ),
     )

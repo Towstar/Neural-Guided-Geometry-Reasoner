@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 import hashlib
 import os
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 import httpx
@@ -29,6 +33,8 @@ from .schema import FactModel, FormalizationResult, ProblemModel
 
 DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_LLAMA_CPP_BASE_URL = "http://127.0.0.1:8080"
+DEFAULT_LLAMA_CPP_STARTUP_TIMEOUT_SECONDS = 180.0
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 IMAGE_TYPES = {
     ".png": "image/png",
@@ -74,6 +80,10 @@ class UnsupportedProviderError(FormalizationError):
     pass
 
 
+class LlamaCppStartupError(FormalizationError):
+    pass
+
+
 class InvalidImageError(FormalizationError):
     pass
 
@@ -105,11 +115,16 @@ class CallMetadata:
 class FormalizerConfig:
     """Runtime configuration for one provider-backed formalizer."""
 
-    provider: Literal["openai", "ollama"] = "openai"
+    provider: Literal["openai", "ollama", "llama-cpp"] = "openai"
     model: str | None = None
     base_url: str | None = None
-    timeout_seconds: float = 60.0
-
+    timeout_seconds: float = 120.0
+    llama_cpp_server_path: Path | None = None
+    llama_cpp_model_path: Path | None = None
+    auto_start_llama_cpp: bool = True
+    llama_cpp_startup_timeout_seconds: float = (
+        DEFAULT_LLAMA_CPP_STARTUP_TIMEOUT_SECONDS
+    )
 
 class Formalizer(Protocol):
     """Provider-neutral boundary used by the CLI and evaluator."""
@@ -123,6 +138,26 @@ class Formalizer(Protocol):
     def formalize_image(self, path: str | Path) -> FormalizationResult: ...
 
 
+def _inline_local_refs(value: Any, definitions: dict[str, Any]) -> Any:
+    if isinstance(value, list):
+        return [_inline_local_refs(item, definitions) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    reference = value.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        definition_name = reference.removeprefix("#/$defs/")
+        resolved = deepcopy(definitions[definition_name])
+        overrides = {
+            key: item for key, item in value.items() if key != "$ref"
+        }
+        return _inline_local_refs({**resolved, **overrides}, definitions)
+
+    return {
+        key: _inline_local_refs(item, definitions)
+        for key, item in value.items()
+    }
+
 def openai_api_key_from_environment() -> str:
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_KEY")
@@ -132,19 +167,47 @@ def openai_api_key_from_environment() -> str:
         )
     return api_key
 
+def llama_cpp_formalization_schema() -> dict[str, Any]:
+    pydantic_schema = FormalizationResult.model_json_schema()
+    definitions = pydantic_schema["$defs"]
 
-def _nonempty(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
+    problem_schema = _inline_local_refs(
+        definitions["FormalizedGeometryModel"],
+        definitions,
+    )
 
-
-def _validate_text(text: str) -> str:
-    clean_text = text.strip()
-    if not clean_text:
-        raise FormalizationError("geometry text must be non-empty")
-    return clean_text
+    return {
+        "oneOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "status": {"type": "string", "enum": ["ok"]},
+                    "problem": problem_schema,
+                    "unsupported_reason": {"type": "null"},
+                },
+                "required": [
+                    "status",
+                    "problem",
+                    "unsupported_reason",
+                ],
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "status": {"type": "string", "enum": ["unsupported"]},
+                    "problem": {"type": "null"},
+                    "unsupported_reason": {"type": "string"},
+                },
+                "required": [
+                    "status",
+                    "problem",
+                    "unsupported_reason",
+                ],
+            },
+        ]
+    }
 
 # For Example, returns {A,B,C} for 
 # { "pred": "equal_length", "args": [["segment", "A", "D"], ["segment", "B", "D"]]}
@@ -197,7 +260,6 @@ def _usage_value(usage: Any, name: str) -> int | None:
     value = getattr(usage, name, None) if usage is not None else None
     return value if isinstance(value, int) else None
 
-
 class OpenAIFormalizer:
     provider = "openai"
 
@@ -206,7 +268,7 @@ class OpenAIFormalizer:
         client: Any | None = None,
         model: str | None = None,
         base_url: str | None = None,
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float = 120.0,
     ) -> None:
         self.model = (
             _nonempty(model)
@@ -313,6 +375,252 @@ class OpenAIFormalizer:
                 ) from error
         return parsed
 
+_STARTED_LLAMA_CPP_SERVERS: dict[str, subprocess.Popen] = {}
+
+
+def _llama_cpp_root_url(base_url: str) -> str:
+    return base_url.rstrip("/").removesuffix("/v1")
+
+
+def _llama_cpp_health_status(base_url: str) -> int | None:
+    try:
+        response = httpx.get(f"{_llama_cpp_root_url(base_url)}/health", timeout=2.0)
+    except httpx.HTTPError:
+        return None
+    return response.status_code
+
+
+def _llama_cpp_launch_address(base_url: str) -> tuple[str, int]:
+    parsed = urlparse(_llama_cpp_root_url(base_url))
+    hostname = parsed.hostname
+    if parsed.scheme != "http" or hostname is None:
+        raise LlamaCppStartupError(
+            "LLAMA_CPP_BASE_URL must be a local http URL to start llama.cpp automatically"
+        )
+    if hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise LlamaCppStartupError(
+            "automatic llama.cpp startup is limited to a loopback URL; start remote servers manually"
+        )
+    if parsed.path not in {"", "/"}:
+        raise LlamaCppStartupError(
+            "LLAMA_CPP_BASE_URL must not include a path when automatic startup is enabled"
+        )
+    return hostname, parsed.port or 8080
+
+
+def _llama_cpp_server_path(configured_path: Path | None) -> Path:
+    configured = configured_path or _nonempty(os.getenv("LLAMA_CPP_SERVER_PATH"))
+    candidate = Path(configured) if configured else None
+    if candidate is None:
+        discovered = shutil.which("llama-server")
+        candidate = Path(discovered) if discovered else None
+    if candidate is None:
+        raise LlamaCppStartupError(
+            "llama-server was not found; pass --llama-server-path or set LLAMA_CPP_SERVER_PATH"
+        )
+    if not candidate.is_file():
+        raise LlamaCppStartupError(
+            f"llama-server does not exist at {candidate}"
+        )
+    return candidate
+
+
+def _llama_cpp_model_path(configured_path: Path | None) -> Path:
+    configured = configured_path or _nonempty(os.getenv("LLAMA_CPP_MODEL_PATH"))
+    if configured is None:
+        raise MissingModelError(
+            "llama.cpp model path is missing; pass --llama-model-path or set LLAMA_CPP_MODEL_PATH"
+        )
+    candidate = Path(configured)
+    if not candidate.is_file():
+        raise MissingModelError(f"llama.cpp model does not exist at {candidate}")
+    if candidate.suffix.lower() != ".gguf":
+        raise MissingModelError("llama.cpp model path must point to a .gguf file")
+    return candidate
+
+
+def _ensure_llama_cpp_server(
+    *,
+    base_url: str,
+    server_path: Path | None,
+    model_path: Path | None,
+    auto_start: bool,
+    startup_timeout_seconds: float,
+) -> None:
+    status = _llama_cpp_health_status(base_url)
+    if status == 200:
+        return
+    if status not in {None, 503}:
+        raise LlamaCppStartupError(
+            f"the service at {_llama_cpp_root_url(base_url)} returned health status {status}"
+        )
+
+    process = _STARTED_LLAMA_CPP_SERVERS.get(base_url)
+    if status is None and (process is None or process.poll() is not None):
+        if not auto_start:
+            raise LlamaCppStartupError(
+                f"llama.cpp is not reachable at {_llama_cpp_root_url(base_url)}"
+            )
+
+        hostname, port = _llama_cpp_launch_address(base_url)
+        binary = _llama_cpp_server_path(server_path)
+        model = _llama_cpp_model_path(model_path)
+        log_path = Path.cwd() / "artifacts" / "llama-server.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        creation_flags = 0
+        if os.name == "nt":
+            creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+
+        with log_path.open("a", encoding="utf-8") as log_file:
+            process = subprocess.Popen(
+                [
+                    str(binary),
+                    "--model",
+                    str(model),
+                    "--host",
+                    hostname,
+                    "--port",
+                    str(port),
+                    "--jinja",
+                    "--reasoning",
+                    "off",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=creation_flags,
+            )
+        _STARTED_LLAMA_CPP_SERVERS[base_url] = process
+
+    deadline = time.monotonic() + startup_timeout_seconds
+    while time.monotonic() < deadline:
+        if _llama_cpp_health_status(base_url) == 200:
+            return
+        if process is not None and process.poll() is not None:
+            raise LlamaCppStartupError(
+                "llama-server exited before it became ready; see artifacts/llama-server.log"
+            )
+        time.sleep(0.25)
+    raise LlamaCppStartupError(
+        "llama-server did not become ready before the startup timeout; see artifacts/llama-server.log"
+    )
+
+
+class LlamaCppFormalizer:
+    """Formalizes text through a local llama.cpp server with constrained JSON output."""
+
+    provider = "llama-cpp"
+
+    def __init__(
+        self,
+        client: httpx.Client | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout_seconds: float = 120.0,
+        server_path: Path | None = None,
+        model_path: Path | None = None,
+        auto_start: bool = True,
+        startup_timeout_seconds: float = DEFAULT_LLAMA_CPP_STARTUP_TIMEOUT_SECONDS,
+    ) -> None:
+        load_dotenv()
+        self.base_url = (
+            _nonempty(base_url)
+            or _nonempty(os.getenv("LLAMA_CPP_BASE_URL"))
+            or DEFAULT_LLAMA_CPP_BASE_URL
+        )
+        self.model = _nonempty(model) or _nonempty(os.getenv("LLAMA_CPP_MODEL")) or "local-model"
+        if client is None:
+            _ensure_llama_cpp_server(
+                base_url=self.base_url,
+                server_path=server_path,
+                model_path=model_path,
+                auto_start=auto_start,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
+            self.client = httpx.Client(
+                base_url=f"{_llama_cpp_root_url(self.base_url)}/v1",
+                timeout=timeout_seconds,
+            )
+        else:
+            self.client = client
+        self.last_call_metadata: CallMetadata | None = None
+
+    def formalize_text(self, text: str) -> FormalizationResult:
+        clean_text = _validate_text(text)
+        started = time.perf_counter()
+        try:
+            response = self.client.post(
+                "/chat/completions",
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": clean_text},
+                    ],
+                    "temperature": 0,
+                    "stream": False,
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "geometry_formalization",
+                            "strict": True,
+                            "schema": llama_cpp_formalization_schema(),
+                        },
+                    },
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.TimeoutException as error:
+            raise FormalizationAPIError("llama.cpp request timed out") from error
+        except httpx.HTTPStatusError as error:
+            raise FormalizationAPIError(
+                f"llama.cpp request failed with status {error.response.status_code}"
+            ) from error
+        except httpx.HTTPError as error:
+            raise FormalizationAPIError("Could not connect to llama.cpp") from error
+        except ValueError as error:
+            raise FormalizationAPIError("llama.cpp returned invalid JSON") from error
+
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise IncompleteFormalizationError(
+                "llama.cpp response did not contain a formalization"
+            ) from error
+        if not isinstance(content, str) or not content.strip():
+            raise IncompleteFormalizationError(
+                "llama.cpp response did not contain a formalization"
+            )
+        try:
+            result = FormalizationResult.model_validate_json(content)
+        except ValidationError as error:
+            raise FormalizationAPIError(
+                "llama.cpp returned data that failed geometry validation"
+            ) from error
+
+        usage = payload.get("usage", {})
+        input_tokens = usage.get("prompt_tokens")
+        output_tokens = usage.get("completion_tokens")
+        self.last_call_metadata = CallMetadata(
+            provider=self.provider,
+            model=payload.get("model") or self.model,
+            response_id=payload.get("id"),
+            latency_seconds=time.perf_counter() - started,
+            input_tokens=input_tokens if isinstance(input_tokens, int) else None,
+            output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+            total_tokens=(
+                input_tokens + output_tokens
+                if isinstance(input_tokens, int) and isinstance(output_tokens, int)
+                else None
+            ),
+        )
+        return result
+
+    def formalize_image(self, path: str | Path) -> FormalizationResult:
+        raise FormalizationError(
+            "The llama.cpp provider currently supports text input only"
+        )
 
 class OllamaFormalizer:
     """Formalizes geometry with an Ollama model selected by its local model tag."""
@@ -324,7 +632,7 @@ class OllamaFormalizer:
         client: Any | None = None,
         model: str | None = None,
         host: str | None = None,
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float = 120.0,
     ) -> None:
         load_dotenv()
         self.model = _nonempty(model) or _nonempty(os.getenv("OLLAMA_MODEL"))
@@ -457,6 +765,16 @@ def create_formalizer(config: FormalizerConfig) -> Formalizer:
             host=config.base_url,
             timeout_seconds=config.timeout_seconds,
         )
+    if provider == "llama-cpp":
+        return LlamaCppFormalizer(
+            model=config.model,
+            base_url=config.base_url,
+            timeout_seconds=config.timeout_seconds,
+            server_path=config.llama_cpp_server_path,
+            model_path=config.llama_cpp_model_path,
+            auto_start=config.auto_start_llama_cpp,
+            startup_timeout_seconds=config.llama_cpp_startup_timeout_seconds,
+        )
     raise UnsupportedProviderError(f"Unsupported provider: {config.provider}")
 
 
@@ -478,3 +796,17 @@ def formalize_image(
     """Compatibility helper for callers that have not yet injected a formalizer."""
 
     return (formalizer or create_formalizer(FormalizerConfig())).formalize_image(path)
+
+# General Helpers
+
+def _nonempty(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+def _validate_text(text: str) -> str:
+    clean_text = text.strip()
+    if not clean_text:
+        raise FormalizationError("geometry text must be non-empty")
+    return clean_text

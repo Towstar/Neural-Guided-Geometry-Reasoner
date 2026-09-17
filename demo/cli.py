@@ -33,18 +33,47 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-p",
         "--provider",
-        choices=("openai", "ollama"),
+        choices=("openai", "ollama", "llama-cpp"),
         default="openai",
         help="LLM provider for formalization (default: openai)",
     )
     parser.add_argument(
         "-m",
         "--model",
-        help="Model name or Ollama model tag; uses the provider default when omitted",
+        help="Model name or provider model tag; uses the provider default when omitted",
     )
     parser.add_argument(
         "--base-url",
         help="Provider endpoint; defaults to the provider's configured endpoint",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=_positive_float,
+        default=120.0,
+        help="Maximum seconds to wait for one provider response (default: 120)",
+    )
+    parser.add_argument(
+        "--llama-server-path",
+        type=Path,
+        help="Path to llama-server or llama-server.exe for automatic llama.cpp startup",
+    )
+    parser.add_argument(
+        "--llama-model-path",
+        type=Path,
+        help="Path to the GGUF model file to load when starting llama.cpp",
+    )
+    parser.add_argument(
+        "--no-auto-start-llama-cpp",
+        action="store_false",
+        dest="auto_start_llama_cpp",
+        help="Require an already-running llama.cpp server",
+    )
+    parser.set_defaults(auto_start_llama_cpp=True)
+    parser.add_argument(
+        "--llama-startup-timeout-seconds",
+        type=_positive_float,
+        default=180.0,
+        help="Seconds to wait for llama.cpp to load its model (default: 180)",
     )
     parser.add_argument(
         "-M",
@@ -69,6 +98,13 @@ def _nonnegative_int(value: str) -> int:
     return parsed
 
 
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -78,6 +114,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 provider=args.provider,
                 model=args.model,
                 base_url=args.base_url,
+                timeout_seconds=args.timeout_seconds,
+                llama_cpp_server_path=args.llama_server_path,
+                llama_cpp_model_path=args.llama_model_path,
+                auto_start_llama_cpp=args.auto_start_llama_cpp,
+                llama_cpp_startup_timeout_seconds=args.llama_startup_timeout_seconds,
             )
         )
         if args.text is not None:

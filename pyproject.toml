@@ -8,12 +8,12 @@ dependencies = [
     "python-dotenv==1.2.3",
     "Pillow==12.3.0",
     "ollama>=0.6.2",
+    "httpx==0.28.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest==9.0.2",
-    "httpx==0.28.1",
 ]
 
 [tool.uv]

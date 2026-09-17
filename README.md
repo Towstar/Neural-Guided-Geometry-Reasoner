@@ -3,10 +3,10 @@
 A research-oriented geometry prover that combines LLM formalization with deterministic
 SWI-Prolog verification.
 
-The current CLI accepts a geometry statement or local image, asks the configured OpenAI or
-Ollama model for schema-constrained geometry JSON, canonicalizes the facts, and runs a
-bounded proof loop. The model may translate the problem; Prolog decides which mathematical
-steps are valid.
+The current CLI accepts a geometry statement or local image, asks the configured OpenAI,
+Ollama, or llama.cpp model for schema-constrained geometry JSON, canonicalizes the facts,
+and runs a bounded proof loop. The model may translate the problem; Prolog decides which
+mathematical steps are valid.
 
 ```text
 text or image
@@ -22,7 +22,7 @@ text or image
 - Python 3.12
 - `uv` for Python and dependency management
 - SWI-Prolog 10+, with `swipl` on `PATH`
-- Either an OpenAI API key for hosted formalization or a running local Ollama service
+- Either an OpenAI API key, a running local Ollama service, or llama.cpp with a GGUF model
 
 Check the important executables:
 
@@ -68,6 +68,16 @@ OLLAMA_MODEL=geometry-local
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
+For llama.cpp, configure the server executable and a GGUF model. When `--provider llama-cpp`
+is selected, the CLI starts `llama-server` automatically only if no healthy server is already
+listening at the configured base URL.
+
+```dotenv
+LLAMA_CPP_BASE_URL=http://127.0.0.1:8080
+LLAMA_CPP_SERVER_PATH=C:\path\to\llama-server.exe
+LLAMA_CPP_MODEL_PATH=C:\path\to\geometry-model.gguf
+```
+
 Run a text problem:
 
 ```powershell
@@ -78,6 +88,13 @@ Run the same problem with a local Ollama model:
 
 ```powershell
 uv run python -m demo.cli --provider ollama --model geometry-local --text "D is the midpoint of AB. Prove that A, D, and B are collinear."
+```
+
+Run a GGUF model through llama.cpp. The server starts automatically, waits for `/health` to
+report ready, and logs startup output to `artifacts/llama-server.log`:
+
+```powershell
+uv run python -m demo.cli --provider llama-cpp --model geometry-local --text "D is the midpoint of AB. Prove that A, D, and B are collinear."
 ```
 
 Run a local image:
@@ -93,13 +110,16 @@ uv run python -m demo.cli --text "B lies between A and C. Prove A, B, and C are 
 ```
 
 Use `--max-steps N` to change the default 32-step proof bound.
-Use `--base-url` to override a provider endpoint for one invocation. Image inputs require a
-vision-capable selected model.
+Use `--base-url` to override a provider endpoint for one invocation. Pass
+`--llama-server-path` and `--llama-model-path` to override the llama.cpp environment settings,
+or `--no-auto-start-llama-cpp` to require a pre-started server. Image inputs require a
+vision-capable selected model; the llama.cpp adapter currently supports text only.
 
 ## What works today
 
 - Strict schemas for eleven supported geometry predicates.
-- Text and single-image formalization through a runtime-selected OpenAI or Ollama model.
+- Text formalization through a runtime-selected OpenAI, Ollama, or llama.cpp model.
+- Image formalization through OpenAI or a vision-capable Ollama model.
 - Explicit unsupported-input results rather than invented facts.
 - Canonical fact ordering and duplicate removal.
 - JSON-only Python/SWI-Prolog communication.
@@ -204,14 +224,13 @@ tests/                  offline, integration, and opt-in live tests
 
 The remaining scope is intentionally limited:
 
-1. Abstract formalization so provider/model are runtime CLI choices.
-2. Add one local text formalizer through `llama.cpp`, then run one measured fine-tune.
-3. Make proof traces premise-complete.
-4. Keep one persistent SWI-Prolog process per problem.
-5. Add bounded Prolog-native recursive search.
-6. Train and persist one XGBoost candidate ranker.
-7. Compare Prolog-only, first-candidate, and XGBoost-guided search.
-8. Record the experiments in `RESEARCH_NOTES.md`, document the result, and stop.
+1. run one measured fine-tune.
+2. Make proof traces premise-complete.
+3. Keep one persistent SWI-Prolog process per problem.
+4. Add bounded Prolog-native recursive search.
+5. Train and persist one XGBoost candidate ranker.
+6. Compare Prolog-only, first-candidate, and XGBoost-guided search.
+7. Record the experiments in `RESEARCH_NOTES.md`, document the result, and stop.
 
 Reinforcement learning, a web UI, retrieval, distributed training, and production
 serving are outside the completion scope.
