@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Sequence
 
 from geometry_reasoner.formalizer import (
+    FormalizerConfig,
     FormalizationError,
-    formalize_image,
-    formalize_text,
+    create_formalizer,
     materialize_problem,
 )
 from geometry_reasoner.prolog_bridge import PrologBridgeError
@@ -28,15 +28,33 @@ def build_parser() -> argparse.ArgumentParser:
         description="Formalize a geometry question and verify it with Prolog."
     )
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--text", help="Geometry question written as text")
-    source.add_argument("--image", type=Path, help="Local image of a geometry question")
+    source.add_argument("-t", "--text", type=str, help="Geometry question written as text")
+    source.add_argument("-i", "--image", type=Path, help="Local image of a geometry question")
     parser.add_argument(
+        "-p",
+        "--provider",
+        choices=("openai", "ollama"),
+        default="openai",
+        help="LLM provider for formalization (default: openai)",
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        help="Model name or Ollama model tag; uses the provider default when omitted",
+    )
+    parser.add_argument(
+        "--base-url",
+        help="Provider endpoint; defaults to the provider's configured endpoint",
+    )
+    parser.add_argument(
+        "-M",
         "--max-steps",
         type=_nonnegative_int,
         default=32,
         help="Maximum derived facts before proof search stops (default: 32)",
     )
     parser.add_argument(
+        "-j",
         "--json",
         action="store_true",
         help="Emit one machine-readable JSON object",
@@ -55,16 +73,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
+        formalizer = create_formalizer(
+            FormalizerConfig(
+                provider=args.provider,
+                model=args.model,
+                base_url=args.base_url,
+            )
+        )
         if args.text is not None:
             source_bytes = args.text.strip().encode("utf-8")
-            formalization = formalize_text(args.text)
-        else:
+            formalization = formalizer.formalize_text(args.text)
+        else:  # args.image is not None
             source_bytes = args.image.read_bytes() if args.image.exists() else b""
-            formalization = formalize_image(args.image)
+            formalization = formalizer.formalize_image(args.image)
     except (OSError, FormalizationError) as error:
         _emit_error(str(error), args.json)
         return EXIT_FORMALIZATION
-
     if formalization.status == "unsupported":
         _emit_error(
             formalization.unsupported_reason or "Unsupported geometry question",

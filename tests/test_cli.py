@@ -27,8 +27,23 @@ def _formalization(status: str = "ok") -> FormalizationResult:
     )
 
 
+class StubFormalizer:
+    def __init__(self, result: FormalizationResult) -> None:
+        self.result = result
+
+    def formalize_text(self, text: str) -> FormalizationResult:
+        return self.result
+
+    def formalize_image(self, path: object) -> FormalizationResult:
+        return self.result
+
+
 def test_cli_json_success(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "formalize_text", lambda text: _formalization())
+    monkeypatch.setattr(
+        cli,
+        "create_formalizer",
+        lambda config: StubFormalizer(_formalization()),
+    )
     monkeypatch.setattr(
         cli,
         "solve",
@@ -51,8 +66,50 @@ def test_cli_json_success(monkeypatch, capsys) -> None:
 
 def test_cli_unsupported_input_has_exit_three(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli, "formalize_text", lambda text: _formalization("unsupported")
+        cli,
+        "create_formalizer",
+        lambda config: StubFormalizer(_formalization("unsupported")),
     )
     exit_code = cli.main(["--text", "A problem"])
     assert exit_code == 3
     assert "Unsupported construction" in capsys.readouterr().err
+
+
+def test_cli_uses_provider_and_model_to_create_formalizer(monkeypatch, capsys) -> None:
+    captured = []
+    monkeypatch.setattr(
+        cli,
+        "create_formalizer",
+        lambda config: captured.append(config) or StubFormalizer(_formalization()),
+    )
+    monkeypatch.setattr(
+        cli,
+        "solve",
+        lambda problem, max_steps: ProofResult(
+            status="exhausted",
+            solved=False,
+            problem_id=problem["id"],
+            steps=[],
+            final_facts=problem["givens"],
+        ),
+    )
+
+    exit_code = cli.main(
+        [
+            "--text",
+            "A problem",
+            "--provider",
+            "ollama",
+            "--model",
+            "geometry-local",
+            "--base-url",
+            "http://localhost:11434",
+        ]
+    )
+
+    assert exit_code == 4
+    assert len(captured) == 1
+    assert captured[0].provider == "ollama"
+    assert captured[0].model == "geometry-local"
+    assert captured[0].base_url == "http://localhost:11434"
+    assert capsys.readouterr().err == ""

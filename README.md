@@ -3,9 +3,10 @@
 A research-oriented geometry prover that combines LLM formalization with deterministic
 SWI-Prolog verification.
 
-The current CLI accepts a geometry statement or local image, asks an OpenAI model for
-schema-constrained geometry JSON, canonicalizes the facts, and runs a bounded proof loop.
-The model may translate the problem; Prolog decides which mathematical steps are valid.
+The current CLI accepts a geometry statement or local image, asks the configured OpenAI or
+Ollama model for schema-constrained geometry JSON, canonicalizes the facts, and runs a
+bounded proof loop. The model may translate the problem; Prolog decides which mathematical
+steps are valid.
 
 ```text
 text or image
@@ -21,7 +22,7 @@ text or image
 - Python 3.12
 - `uv` for Python and dependency management
 - SWI-Prolog 10+, with `swipl` on `PATH`
-- An OpenAI API key for hosted formalization
+- Either an OpenAI API key for hosted formalization or a running local Ollama service
 
 Check the important executables:
 
@@ -50,7 +51,7 @@ Copy the environment template:
 Copy-Item .env.example .env
 ```
 
-Then put your real key in `.env`:
+For OpenAI, put your real key in `.env`:
 
 ```dotenv
 OPENAI_API_KEY=replace_with_your_key
@@ -59,10 +60,24 @@ OPENAI_MODEL=gpt-5.6-luna
 
 The legacy name `OPEN_AI_KEY` is also accepted. `.env` is ignored by Git.
 
+For a local Ollama model, set its Ollama tag instead. A model tag is the name shown by
+`ollama list`, not the path to its weights:
+
+```dotenv
+OLLAMA_MODEL=geometry-local
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
 Run a text problem:
 
 ```powershell
 uv run python -m demo.cli --text "D is the midpoint of AB. Prove that A, D, and B are collinear."
+```
+
+Run the same problem with a local Ollama model:
+
+```powershell
+uv run python -m demo.cli --provider ollama --model geometry-local --text "D is the midpoint of AB. Prove that A, D, and B are collinear."
 ```
 
 Run a local image:
@@ -78,11 +93,13 @@ uv run python -m demo.cli --text "B lies between A and C. Prove A, B, and C are 
 ```
 
 Use `--max-steps N` to change the default 32-step proof bound.
+Use `--base-url` to override a provider endpoint for one invocation. Image inputs require a
+vision-capable selected model.
 
 ## What works today
 
 - Strict schemas for eleven supported geometry predicates.
-- Text and single-image formalization using `gpt-5.6-luna` by default.
+- Text and single-image formalization through a runtime-selected OpenAI or Ollama model.
 - Explicit unsupported-input results rather than invented facts.
 - Canonical fact ordering and duplicate removal.
 - JSON-only Python/SWI-Prolog communication.

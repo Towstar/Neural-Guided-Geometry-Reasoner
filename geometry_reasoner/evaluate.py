@@ -9,7 +9,13 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Sequence
 
-from .formalizer import FormalizationError, OpenAIFormalizer, materialize_problem
+from .formalizer import (
+    Formalizer,
+    FormalizerConfig,
+    FormalizationError,
+    create_formalizer,
+    materialize_problem,
+)
 from .loader import load_problems
 from .prolog_bridge import PrologBridgeError
 from .reasoner import solve
@@ -24,11 +30,11 @@ def evaluate(
     output_path: Path,
     *,
     limit: int | None = None,
-    formalizer: OpenAIFormalizer | None = None,
+    formalizer: Formalizer | None = None,
 ) -> dict[str, Any]:
     problems = load_problems(dataset_path)
     selected_ids = sorted(problems)[:limit]
-    runner = formalizer or OpenAIFormalizer()
+    runner = formalizer or create_formalizer(FormalizerConfig())
     cases: list[dict[str, Any]] = []
 
     for problem_id in selected_ids:
@@ -79,6 +85,7 @@ def evaluate(
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "provider": runner.provider,
         "model": runner.model,
         "metrics": {
             "formalization_success_rate": _rate(formalized_count, len(cases)),
@@ -103,7 +110,7 @@ def _evaluate_case(
     gold: dict[str, Any],
     source_fingerprint: bytes,
     formalize: Any,
-    formalizer: OpenAIFormalizer,
+    formalizer: Formalizer,
 ) -> dict[str, Any]:
     case: dict[str, Any] = {
         "id": case_id,
@@ -184,6 +191,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=ROOT / "artifacts" / "eval.json",
     )
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--provider",
+        choices=("openai", "ollama"),
+        default="openai",
+        help="LLM provider for formalization (default: openai)",
+    )
+    parser.add_argument("--model", help="Model name or Ollama model tag")
+    parser.add_argument("--base-url", help="Provider endpoint")
     return parser
 
 
@@ -196,6 +211,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.image_manifest,
         args.output,
         limit=args.limit,
+        formalizer=create_formalizer(
+            FormalizerConfig(
+                provider=args.provider,
+                model=args.model,
+                base_url=args.base_url,
+            )
+        ),
     )
     print(json.dumps({"metrics": report["metrics"], "mvp_passed": report["mvp_passed"]}, indent=2))
     print(f"Full report: {args.output}")

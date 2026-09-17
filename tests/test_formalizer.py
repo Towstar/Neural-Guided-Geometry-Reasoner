@@ -8,11 +8,15 @@ import pytest
 from openai import APITimeoutError, AuthenticationError
 
 from geometry_reasoner.formalizer import (
+    FormalizerConfig,
     FormalizationAPIError,
     FormalizationRefusalError,
     IncompleteFormalizationError,
     MissingAPIKeyError,
+    MissingModelError,
+    OllamaFormalizer,
     OpenAIFormalizer,
+    create_formalizer,
     openai_api_key_from_environment,
     materialize_problem,
 )
@@ -72,6 +76,26 @@ def _response(parsed: object | None = None, status: str = "completed") -> object
     )
 
 
+class FakeOllamaClient:
+    def __init__(self, response: object) -> None:
+        self.response = response
+        self.kwargs: dict | None = None
+
+    def chat(self, **kwargs: object) -> object:
+        self.kwargs = kwargs
+        return self.response
+
+
+def _ollama_response(content: str) -> object:
+    return SimpleNamespace(
+        model="geometry-local",
+        done=True,
+        message=SimpleNamespace(content=content),
+        prompt_eval_count=10,
+        eval_count=20,
+    )
+
+
 def test_text_request_uses_structured_output_without_storage() -> None:
     client = FakeClient(_response(_parsed_result()))
     formalizer = OpenAIFormalizer(client=client)
@@ -85,6 +109,38 @@ def test_text_request_uses_structured_output_without_storage() -> None:
     assert client.responses.kwargs["model"] == "gpt-5.6-luna"
     assert formalizer.last_call_metadata is not None
     assert formalizer.last_call_metadata.total_tokens == 30
+    assert formalizer.last_call_metadata.provider == "openai"
+
+
+def test_ollama_text_request_uses_schema_and_validates_json() -> None:
+    expected = _parsed_result()
+    client = FakeOllamaClient(_ollama_response(expected.model_dump_json()))
+    formalizer = OllamaFormalizer(client=client, model="geometry-local")
+
+    result = formalizer.formalize_text("D is the midpoint of AB.")
+
+    assert result == expected
+    assert client.kwargs is not None
+    assert client.kwargs["model"] == "geometry-local"
+    assert client.kwargs["format"] == FormalizationResult.model_json_schema()
+    assert client.kwargs["options"] == {"temperature": 0}
+    assert client.kwargs["stream"] is False
+    assert formalizer.last_call_metadata is not None
+    assert formalizer.last_call_metadata.provider == "ollama"
+    assert formalizer.last_call_metadata.total_tokens == 30
+
+
+def test_factory_selects_ollama_and_requires_a_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("geometry_reasoner.formalizer.load_dotenv", lambda: None)
+    selected = create_formalizer(FormalizerConfig(provider="ollama", model="local"))
+    assert isinstance(selected, OllamaFormalizer)
+    assert selected.model == "local"
+
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    with pytest.raises(MissingModelError, match="Ollama model is missing"):
+        OllamaFormalizer()
 
 
 def test_image_request_uses_base64_and_original_detail() -> None:

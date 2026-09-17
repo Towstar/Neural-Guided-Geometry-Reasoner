@@ -6,9 +6,10 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Protocol
 
 from dotenv import load_dotenv
+import httpx
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -17,6 +18,8 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
+from ollama import Client as OllamaClient
+from ollama import ResponseError as OllamaResponseError
 from PIL import Image, UnidentifiedImageError
 from pydantic import ValidationError
 
@@ -24,7 +27,8 @@ from .canonicalize import canonicalize_problem
 from .schema import FactModel, FormalizationResult, ProblemModel
 
 
-DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 IMAGE_TYPES = {
     ".png": "image/png",
@@ -62,6 +66,14 @@ class MissingAPIKeyError(FormalizationError):
     pass
 
 
+class MissingModelError(FormalizationError):
+    pass
+
+
+class UnsupportedProviderError(FormalizationError):
+    pass
+
+
 class InvalidImageError(FormalizationError):
     pass
 
@@ -80,12 +92,35 @@ class IncompleteFormalizationError(FormalizationError):
 
 @dataclass(frozen=True)
 class CallMetadata:
+    provider: str
     model: str
     response_id: str | None
     latency_seconds: float
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
+
+
+@dataclass(frozen=True)
+class FormalizerConfig:
+    """Runtime configuration for one provider-backed formalizer."""
+
+    provider: Literal["openai", "ollama"] = "openai"
+    model: str | None = None
+    base_url: str | None = None
+    timeout_seconds: float = 60.0
+
+
+class Formalizer(Protocol):
+    """Provider-neutral boundary used by the CLI and evaluator."""
+
+    provider: str
+    model: str
+    last_call_metadata: CallMetadata | None
+
+    def formalize_text(self, text: str) -> FormalizationResult: ...
+
+    def formalize_image(self, path: str | Path) -> FormalizationResult: ...
 
 
 def openai_api_key_from_environment() -> str:
@@ -96,6 +131,20 @@ def openai_api_key_from_environment() -> str:
             "OpenAI API key is missing; set OPENAI_API_KEY in .env"
         )
     return api_key
+
+
+def _nonempty(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _validate_text(text: str) -> str:
+    clean_text = text.strip()
+    if not clean_text:
+        raise FormalizationError("geometry text must be non-empty")
+    return clean_text
 
 # For Example, returns {A,B,C} for 
 # { "pred": "equal_length", "args": [["segment", "A", "D"], ["segment", "B", "D"]]}
@@ -150,16 +199,34 @@ def _usage_value(usage: Any, name: str) -> int | None:
 
 
 class OpenAIFormalizer:
-    def __init__(self, client: Any | None = None, model: str | None = None) -> None:
-        self.model = model or os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
-        self.client = client or OpenAI(api_key=openai_api_key_from_environment(), timeout=60.0)
+    provider = "openai"
+
+    def __init__(
+        self,
+        client: Any | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout_seconds: float = 60.0,
+    ) -> None:
+        self.model = (
+            _nonempty(model)
+            or _nonempty(os.getenv("OPENAI_MODEL"))
+            or DEFAULT_OPENAI_MODEL
+        )
+        if client is None:
+            client_options: dict[str, Any] = {
+                "api_key": openai_api_key_from_environment(),
+                "timeout": timeout_seconds,
+            }
+            if resolved_base_url := _nonempty(base_url):
+                client_options["base_url"] = resolved_base_url
+            self.client = OpenAI(**client_options)
+        else:
+            self.client = client
         self.last_call_metadata: CallMetadata | None = None
 
     def formalize_text(self, text: str) -> FormalizationResult:
-        clean_text = text.strip()
-        if not clean_text:
-            raise FormalizationError("geometry text must be non-empty")
-        return self._request(clean_text)
+        return self._request(_validate_text(text))
 
     def formalize_image(self, path: str | Path) -> FormalizationResult:
         image_bytes, mime_type = _read_image(Path(path))
@@ -213,6 +280,7 @@ class OpenAIFormalizer:
         latency = time.perf_counter() - started
         usage = getattr(response, "usage", None)
         self.last_call_metadata = CallMetadata(
+            provider=self.provider,
             model=getattr(response, "model", None) or self.model,
             response_id=getattr(response, "id", None),
             latency_seconds=latency,
@@ -246,6 +314,110 @@ class OpenAIFormalizer:
         return parsed
 
 
+class OllamaFormalizer:
+    """Formalizes geometry with an Ollama model selected by its local model tag."""
+
+    provider = "ollama"
+
+    def __init__(
+        self,
+        client: Any | None = None,
+        model: str | None = None,
+        host: str | None = None,
+        timeout_seconds: float = 60.0,
+    ) -> None:
+        load_dotenv()
+        self.model = _nonempty(model) or _nonempty(os.getenv("OLLAMA_MODEL"))
+        if self.model is None:
+            raise MissingModelError(
+                "Ollama model is missing; pass --model or set OLLAMA_MODEL"
+            )
+        self.host = (
+            _nonempty(host)
+            or _nonempty(os.getenv("OLLAMA_BASE_URL"))
+            or _nonempty(os.getenv("OLLAMA_HOST"))
+            or DEFAULT_OLLAMA_HOST
+        )
+        self.client = client or OllamaClient(host=self.host, timeout=timeout_seconds)
+        self.last_call_metadata: CallMetadata | None = None
+
+    def formalize_text(self, text: str) -> FormalizationResult:
+        return self._request(
+            [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": _validate_text(text)},
+            ]
+        )
+
+    def formalize_image(self, path: str | Path) -> FormalizationResult:
+        image_bytes, _ = _read_image(Path(path))
+        return self._request(
+            [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": "Read and formalize the geometry question in this image.",
+                    "images": [image_bytes],
+                },
+            ]
+        )
+
+    def _request(self, messages: list[dict[str, Any]]) -> FormalizationResult:
+        started = time.perf_counter()
+        try:
+            response = self.client.chat(
+                model=self.model,
+                messages=messages,
+                format=FormalizationResult.model_json_schema(),
+                options={"temperature": 0},
+                stream=False,
+            )
+        except OllamaResponseError as error:
+            message = (
+                f"Ollama model '{self.model}' was not found"
+                if error.status_code == 404
+                else "Ollama request failed"
+            )
+            raise FormalizationAPIError(message) from error
+        except httpx.TimeoutException as error:
+            raise FormalizationAPIError("Ollama request timed out") from error
+        except httpx.HTTPError as error:
+            raise FormalizationAPIError("Could not connect to Ollama") from error
+
+        if not getattr(response, "done", True):
+            raise IncompleteFormalizationError("Ollama response was not completed")
+
+        content = getattr(getattr(response, "message", None), "content", None)
+        if not isinstance(content, str) or not content.strip():
+            raise IncompleteFormalizationError(
+                "Ollama response did not contain a formalization"
+            )
+        try:
+            parsed = FormalizationResult.model_validate_json(content)
+        except ValidationError as error:
+            raise FormalizationAPIError(
+                "Ollama returned data that failed geometry validation"
+            ) from error
+
+        input_tokens = _usage_value(response, "prompt_eval_count")
+        output_tokens = _usage_value(response, "eval_count")
+        total_tokens = (
+            input_tokens + output_tokens
+            if input_tokens is not None and output_tokens is not None
+            else None
+        )
+        self.last_call_metadata = CallMetadata(
+            provider=self.provider,
+            model=getattr(response, "model", None) or self.model,
+            response_id=None,
+            latency_seconds=time.perf_counter() - started,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
+        return parsed
+
+
 def _read_image(path: Path) -> tuple[bytes, str]:
     if not path.exists() or not path.is_file():
         raise InvalidImageError(f"image file does not exist: {path}")
@@ -269,9 +441,40 @@ def _read_image(path: Path) -> tuple[bytes, str]:
     return path.read_bytes(), mime_type
 
 
-def formalize_text(text: str) -> FormalizationResult:
-    return OpenAIFormalizer().formalize_text(text)
+def create_formalizer(config: FormalizerConfig) -> Formalizer:
+    """Construct the provider adapter selected by runtime configuration."""
+
+    provider = config.provider.strip().lower()
+    if provider == "openai":
+        return OpenAIFormalizer(
+            model=config.model,
+            base_url=config.base_url,
+            timeout_seconds=config.timeout_seconds,
+        )
+    if provider == "ollama":
+        return OllamaFormalizer(
+            model=config.model,
+            host=config.base_url,
+            timeout_seconds=config.timeout_seconds,
+        )
+    raise UnsupportedProviderError(f"Unsupported provider: {config.provider}")
 
 
-def formalize_image(path: str | Path) -> FormalizationResult:
-    return OpenAIFormalizer().formalize_image(path)
+def formalize_text(
+    text: str,
+    *,
+    formalizer: Formalizer | None = None,
+) -> FormalizationResult:
+    """Compatibility helper for callers that have not yet injected a formalizer."""
+
+    return (formalizer or create_formalizer(FormalizerConfig())).formalize_text(text)
+
+
+def formalize_image(
+    path: str | Path,
+    *,
+    formalizer: Formalizer | None = None,
+) -> FormalizationResult:
+    """Compatibility helper for callers that have not yet injected a formalizer."""
+
+    return (formalizer or create_formalizer(FormalizerConfig())).formalize_image(path)
